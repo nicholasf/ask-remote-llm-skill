@@ -1,8 +1,7 @@
 # ask-foreign-llm-skill
 
 Drive a remote LLM as an interactive agent. The LLM runs on a node in your
-topology; tool calls execute either on the orchestrating machine (bridge local)
-or on a remote node via SSH (bridge SSH).
+topology; tool calls execute on the orchestrating machine.
 
 For fully autonomous agent delegation — where the remote node runs its own
 agent like Hermes or Goose — use
@@ -34,45 +33,28 @@ Output is prefixed with the node name:
 [pond:result] <file contents>
 ```
 
-### Bridge local — LLM on remote node, tools run here
-
-The LLM reasons over the task on the remote node; file reads, bash commands, and grep execute on your machine.
+### Direct invocation
 
 ```bash
 python3 agent.py --cwd /path/to/project "Summarise how authentication works"
-```
-
-### Bridge SSH — LLM on remote node, tools run on another remote node
-
-The LLM executes tool calls on a separate remote node via SSH. Use when that node has the repo and toolchain but no agent.
-
-```bash
-python3 agent.py \
-  --ssh-node gollum \
-  --ssh-cwd /home/user/code/my-project \
-  "Run the test suite and report failures"
 ```
 
 ---
 
 ## How it works
 
-The remote LLM receives a task and can call tools in a loop until it is done.
-In bridge local mode, every tool call is proxied back to the orchestrating
-machine and executed there. In bridge SSH mode, tool calls are forwarded to a
-remote node via SSH.
+The remote LLM receives a task and calls tools in a loop until it is done. Tool calls execute on the orchestrating machine and results are returned to the LLM.
 
 ```
 dtv-claude-agent
   │
-  ├─ sends prompt ──────────────► pond-qwen-agent (LLM on port 9337)
-  │                                      │
-  │◄── tool call (read_file, bash…) ─────┘
+  ├─ sends prompt ──────────────► pond-qwen (LLM on port 9337)
+  │                                    │
+  │◄── tool call (read_file, bash…) ───┘
   │
-  ├─ executes tool locally (bridge local)
-  │  or via SSH on target node (bridge SSH)
+  ├─ executes tool locally
   │
-  └─ returns result ────────────► pond-qwen-agent (continues)
+  └─ returns result ────────────► pond-qwen (continues)
 ```
 
 ---
@@ -84,7 +66,9 @@ source of truth for which nodes are available and what models they are running.
 Before invoking, read the topology to confirm the target node is online and its
 inference server is active.
 
-Nodes are referred to by their **agent handle** — `<machine>-<llm>` or `<machine>-<llm>-<agent>`, e.g. `pond-qwen`, `gollum-mistral`. See [load-topology-skill](https://github.com/nicholasf/load-topology-skill) for the full naming convention.
+Nodes are referred to by their **agent handle** — `<machine>-<llm>`, e.g.
+`pond-qwen`, `gollum-mistral`. See [load-topology-skill](https://github.com/nicholasf/load-topology-skill)
+for the full naming convention.
 
 Set these environment variables to target a node:
 
@@ -95,37 +79,7 @@ export FOREIGN_AGENT_MODEL=<model-name>
 
 ---
 
-## Modes
-
-### Bridge mode — local
-
-The LLM runs on the remote node. Tool calls execute on the orchestrating
-machine. Use this when the task is against the local codebase.
-
-```bash
-python3 agent.py --cwd /path/to/project "Summarise how authentication works"
-```
-
-### Bridge mode — SSH
-
-The LLM runs on the remote node. Tool calls execute on a different remote node
-via SSH. Use this when the target node has the repo and toolchain but no agent
-runtime. Set `$AGENT_SSH_USER` to the SSH username.
-
-```bash
-export AGENT_SSH_USER=nicholasf
-
-python3 agent.py \
-  --ssh-node <hostname> \
-  --ssh-cwd /path/to/project \
-  "Run the test suite and report failures"
-```
-
-In SSH mode only `bash` is available — the remote shell handles everything.
-
----
-
-## Toolset (bridge local mode)
+## Toolset
 
 | Tool | Description |
 |---|---|
@@ -151,13 +105,9 @@ uv sync
 
 ## Security
 
-**Bridge SSH mode grants the remote LLM shell access to the target node.**
+The LLM is not sandboxed. Adversarial content in files or prompts could trigger
+destructive bash commands on the orchestrating machine.
 
-- The LLM is not sandboxed. Adversarial content in files or prompts could
-  trigger destructive bash commands on the remote node.
 - Use a dedicated SSH user with restricted permissions where possible.
 - Prefer nodes that are not shared with other workloads.
 - Review all changes before committing or merging.
-
-Bridge local mode does not have this exposure — tool calls execute on the
-orchestrating machine under the user's own account.
